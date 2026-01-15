@@ -1,0 +1,433 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ระบบแจ้งจุดเสี่ยงอุบัติเหตุ (หน้าหลัก)</title>
+    <!-- Bootstrap 5 CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    
+    <style>
+        /* ตั้งค่า Layout ให้รองรับ Navbar */
+        html, body { 
+            height: 100%; 
+            margin: 0; 
+            padding: 0; 
+            font-family: 'Sarabun', sans-serif; 
+            overflow: hidden; 
+            background-color: #f8f9fa;
+        }
+
+        /* Navbar สูงประมาณ 60px */
+        .navbar { z-index: 1030; height: 60px; }
+
+        /* แผนที่: ปรับ top ลงมา 60px */
+        #map { 
+            position: absolute; 
+            top: 60px; 
+            left: 0;
+            width: 100%; 
+            height: calc(100% - 60px);
+            z-index: 1;
+        }
+
+        /* Filter Box: ปรับให้ย่อ/ขยายได้ */
+        .filter-box {
+            position: absolute; 
+            top: 75px; 
+            left: 10px; 
+            z-index: 10; 
+            background: rgba(255, 255, 255, 0.95); 
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15); 
+            width: 300px; /* ปรับให้กว้างขึ้นเล็กน้อยเพื่อให้อ่านง่าย */
+            transition: all 0.3s ease;
+            overflow: hidden;
+            max-height: 90vh; /* ความสูงสูงสุดตอนขยาย */
+        }
+
+        /* คลาสสำหรับตอนยุบ */
+        .filter-box.collapsed {
+            max-height: 50px; /* เหลือแค่ส่วนหัว */
+            width: 200px; /* ลดความกว้างลงเล็กน้อย */
+            overflow: hidden;
+        }
+
+        .filter-header {
+            padding: 12px 15px;
+            cursor: pointer;
+            background-color: rgba(255,255,255,0.1);
+            border-bottom: 1px solid #eee;
+        }
+        
+        .filter-content {
+            padding: 15px;
+            overflow-y: auto;
+            max-height: calc(90vh - 60px); 
+        }
+
+        .filter-box.collapsed .filter-header { border-bottom: none; }
+
+        .info-img { 
+            width: 100%; height: 120px; object-fit: cover; 
+            border-radius: 4px; margin-top: 5px; cursor: pointer;
+            border: 1px solid #ddd;
+            transition: transform 0.2s;
+        }
+        .info-img:hover { transform: scale(1.05); }
+        
+        .badge-status { font-size: 0.8em; padding: 5px 8px; }
+        .img-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; margin-top: 5px; }
+        
+        #layer-loading {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 20;
+            background: rgba(0,0,0,0.7);
+            color: white;
+            padding: 10px 20px;
+            border-radius: 20px;
+            font-size: 0.9rem;
+            display: none;
+        }
+
+        .btn-menu { border-width: 2px; font-weight: 500; }
+        .btn-menu:hover { transform: translateY(-1px); }
+    </style>
+</head>
+<body>
+
+    <!-- Navbar -->
+    <nav class="navbar navbar-dark bg-success fixed-top shadow-sm px-2">
+        <div class="container-fluid d-flex justify-content-between align-items-center">
+            
+            <a class="navbar-brand d-flex align-items-center gap-2 me-0" href="map.html">
+                <i class="fas fa-shield-alt fa-lg"></i>
+                <span class="d-none d-sm-inline fw-bold">SafeRoad ร้อยเอ็ด</span>
+            </a>
+            
+            <div class="d-flex gap-2">
+                <a href="map.html" class="btn btn-light text-success btn-sm btn-menu fw-bold">
+                    <i class="fas fa-map-marked-alt"></i> <span class="d-none d-md-inline">แผนที่</span>
+                </a>
+                <a href="form.html" class="btn btn-outline-light btn-sm btn-menu">
+                    <i class="fas fa-exclamation-circle"></i> <span class="d-none d-md-inline">แจ้งจุดเสี่ยง</span>
+                </a>
+                <a href="admin.html" class="btn btn-outline-light btn-sm btn-menu">
+                    <i class="fas fa-user-cog"></i> <span class="d-none d-md-inline">ผู้ดูแล</span>
+                </a>
+            </div>
+
+        </div>
+    </nav>
+
+    <!-- Filter Box (Collapsible) -->
+    <div class="filter-box" id="filterBox">
+        <!-- Header: คลิกเพื่อย่อ/ขยาย -->
+        <div class="filter-header d-flex justify-content-between align-items-center" onclick="toggleFilterBox()">
+            <h6 class="mb-0 text-success fw-bold"><i class="fas fa-filter"></i> ตัวเลือกการแสดงผล</h6>
+            <i class="fas fa-chevron-up text-secondary" id="filterIcon"></i>
+        </div>
+
+        <!-- Content -->
+        <div class="filter-content">
+            <div class="mb-2">
+                <label class="form-label small fw-bold">สถานะ</label>
+                <select class="form-select form-select-sm" id="statusFilter">
+                    <option value="all">ทั้งหมด</option>
+                    <option value="รอดำเนินการ">รอดำเนินการ</option>
+                    <option value="ดำเนินการแล้ว">ดำเนินการแล้ว</option>
+                </select>
+            </div>
+
+            <div class="mb-3">
+                <label class="form-label small fw-bold">ประเภทจุดเสี่ยง</label>
+                <!-- อัปเดตตัวเลือกให้ตรงกับหน้า Form -->
+                <select class="form-select form-select-sm" id="typeFilter">
+                    <option value="all">ทั้งหมด</option>
+                    <option value="ไม่มีไฟส่องสว่าง">ไม่มีไฟส่องสว่าง</option>
+                    <option value="โค้งอันตราย">โค้งอันตราย</option>
+                    <option value="จุดตัด/แยกอันตราย">จุดตัด/แยกอันตราย</option>
+                    <option value="ถนนชำรุด/เป็นหลุมบ่อ">ถนนชำรุด/เป็นหลุมบ่อ</option>
+                    <option value="น้ำท่วมขังบ่อย">น้ำท่วมขังบ่อย</option>
+                    <option value="รถใช้ความเร็วสูงบ่อย">รถใช้ความเร็วสูงบ่อย</option>
+                    <option value="ใกล้สถานศึกษา/ชุมชน">ใกล้สถานศึกษา/ชุมชน</option>
+                    <option value="ทางม้าลายไม่ชัดเจน">ทางม้าลายไม่ชัดเจน</option>
+                    <option value="อื่น ๆ">อื่น ๆ (ระบุ)</option>
+                </select>
+            </div>
+
+            <button class="btn btn-primary btn-sm w-100" onclick="loadDataAndRender()">
+                <i class="fas fa-sync-alt"></i> อัปเดตข้อมูล
+            </button>
+            
+            <hr>
+            <div class="form-check form-switch">
+                <input class="form-check-input" type="checkbox" id="toggleDistrict" checked onchange="toggleDistrictLayer()">
+                <label class="form-check-label small" for="toggleDistrict">แสดงขอบเขตอำเภอ</label>
+            </div>
+
+            <div class="mt-3 small text-muted">
+                <i class="fas fa-mouse-pointer"></i> คลิกที่หมุดเพื่อดูรูปภาพและรายละเอียด
+            </div>
+        </div>
+    </div>
+    
+    <div id="layer-loading"><i class="fas fa-spinner fa-spin"></i> กำลังโหลดข้อมูลแผนที่...</div>
+
+    <div id="map"></div>
+
+    <script>
+        const BASE_URL = 'https://script.google.com/macros/s/AKfycbzijdD1QU4JU0Q4KZV9UZbDNgruBuGpCatWbASNdLcJiaetI_otDeIMdBgV10-8rrQR/exec';
+    </script>
+
+    <script src="https://unpkg.com/@googlemaps/markerclusterer/dist/index.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyA1xmTQ_hd4n-FPyqIiUqPhAElgMRdYfUo&callback=initMap" async defer></script>
+
+    <script>
+        let map;
+        let allReports = [];
+        let markers = [];
+        let markerCluster = null;
+        let infoWindow;
+        let roiEtLayerVisible = true;
+        let geocoder; 
+
+        function initMap() {
+            try {
+                geocoder = new google.maps.Geocoder();
+
+                map = new google.maps.Map(document.getElementById("map"), {
+                    zoom: 10,
+                    center: { lat: 16.0538, lng: 103.6520 }, 
+                    mapTypeId: google.maps.MapTypeId.SATELLITE,
+                    mapTypeControl: true,
+                    streetViewControl: true,
+                    fullscreenControl: true,
+                    mapTypeControlOptions: { style: google.maps.MapTypeControlStyle.HORIZONTAL_BAR, position: google.maps.ControlPosition.TOP_RIGHT },
+                    fullscreenControlOptions: { position: google.maps.ControlPosition.RIGHT_TOP }
+                });
+
+                infoWindow = new google.maps.InfoWindow();
+
+                // คลิกพื้นที่ว่าง -> แสดงที่อยู่ + ปุ่มแจ้งเหตุ
+                map.addListener("click", (e) => {
+                    showAddressInfo(e.latLng);
+                });
+
+                loadDataAndRender();
+                loadRoiEtDistricts();
+
+            } catch (error) {
+                console.error("Map Init Error:", error);
+                alert("เกิดข้อผิดพลาดในการโหลดแผนที่");
+            }
+        }
+
+        function toggleFilterBox() {
+            const box = document.getElementById('filterBox');
+            const icon = document.getElementById('filterIcon');
+            box.classList.toggle('collapsed');
+            
+            if (box.classList.contains('collapsed')) {
+                icon.className = 'fas fa-chevron-down text-secondary';
+            } else {
+                icon.className = 'fas fa-chevron-up text-secondary';
+            }
+        }
+
+        function showAddressInfo(latLng) {
+            infoWindow.close();
+            infoWindow.setContent('<div class="text-center p-2"><i class="fas fa-spinner fa-spin"></i> กำลังโหลด...</div>');
+            infoWindow.setPosition(latLng);
+            infoWindow.open(map);
+
+            const lat = latLng.lat();
+            const lng = latLng.lng();
+
+            geocoder.geocode({ location: latLng }, (results, status) => {
+                let addressText = "พิกัดแผนที่";
+                if (status === "OK" && results[0]) {
+                    addressText = results[0].formatted_address;
+                }
+
+                infoWindow.setContent(`
+                    <div style="max-width:250px;">
+                        <strong class="text-primary"><i class="fas fa-map-pin"></i> ตำแหน่งที่เลือก</strong><br>
+                        <small class="d-block mb-2 text-muted" style="line-height:1.2;">${addressText}</small>
+                        <small class="d-block mb-2 text-secondary">พิกัด: ${lat.toFixed(6)}, ${lng.toFixed(6)}</small>
+                        <a href="form.html?lat=${lat}&lng=${lng}" class="btn btn-danger btn-sm w-100 text-white shadow-sm">
+                            <i class="fas fa-exclamation-circle"></i> แจ้งจุดเสี่ยงตรงนี้
+                        </a>
+                    </div>
+                `);
+            });
+        }
+
+        function loadRoiEtDistricts() {
+            const loadingEl = document.getElementById('layer-loading');
+            loadingEl.style.display = 'block';
+
+            map.data.loadGeoJson(
+                'https://raw.githubusercontent.com/chingchai/OpenGISData-Thailand/master/districts.geojson',
+                { idPropertyName: 'amp_code' },
+                function(features) {
+                    loadingEl.style.display = 'none';
+                    updateLayerStyle();
+                }
+            );
+
+            updateLayerStyle();
+
+            map.data.addListener('mouseover', function(event) {
+                if (event.feature.getProperty('pro_code') == '45') {
+                    map.data.overrideStyle(event.feature, { 
+                        fillColor: '#0d6efd',
+                        fillOpacity: 0.3,
+                        strokeWeight: 2
+                    });
+                    map.getDiv().setAttribute('title', 'อำเภอ' + event.feature.getProperty('amp_th'));
+                }
+            });
+
+            map.data.addListener('mouseout', function(event) {
+                map.data.revertStyle();
+                map.getDiv().setAttribute('title', '');
+            });
+        }
+
+        function updateLayerStyle() {
+            map.data.setStyle(function(feature) {
+                const proCode = feature.getProperty('pro_code');
+                const isRoiEt = (proCode == '45');
+                if (isRoiEt && roiEtLayerVisible) {
+                    return { visible: true, fillColor: '#FFC107', fillOpacity: 0.1, strokeColor: '#FFFFFF', strokeWeight: 1, clickable: false };
+                } else {
+                    return { visible: false };
+                }
+            });
+        }
+
+        function toggleDistrictLayer() {
+            roiEtLayerVisible = document.getElementById('toggleDistrict').checked;
+            updateLayerStyle();
+        }
+
+        async function loadDataAndRender() {
+            try {
+                const response = await fetch(BASE_URL, { method: 'POST', body: JSON.stringify({ action: 'listReports' }) });
+                const result = await response.json();
+                if (result.status === 'success') {
+                    allReports = result.data;
+                    renderMarkers();
+                }
+            } catch (error) { console.error("Error loading data:", error); }
+        }
+
+        function renderMarkers() {
+            if (markerCluster) markerCluster.clearMarkers();
+            markers.forEach(m => m.setMap(null));
+            markers = [];
+
+            const statusFilter = document.getElementById("statusFilter").value;
+            const typeFilter = document.getElementById("typeFilter").value;
+
+            const filteredData = allReports.filter(item => {
+                const matchStatus = (statusFilter === 'all') || (item.status === statusFilter);
+                const matchType = (typeFilter === 'all') || (item.type === typeFilter);
+                return matchStatus && matchType;
+            });
+
+            markers = filteredData.map((item, index) => {
+                const position = { lat: parseFloat(item.lat), lng: parseFloat(item.lng) };
+                const marker = new google.maps.Marker({ position: position, title: item.type });
+
+                marker.addListener("click", () => {
+                    const statusColor = item.status === 'รอดำเนินการ' ? 'bg-danger' : 'bg-success';
+                    
+                    // จัดการแสดงรูปภาพ
+                    let imgHtml = '';
+                    if (item.imageUrl) {
+                        const urls = item.imageUrl.split(',');
+                        if (urls.length > 0) {
+                            const showCount = Math.min(urls.length, 2);
+                            imgHtml = '<div class="img-grid">';
+                            for(let i=0; i<showCount; i++) {
+                                // ตรวจสอบว่ามี URL จริงๆ
+                                if(urls[i].trim()) {
+                                    imgHtml += `<a href="${urls[i]}" target="_blank"><img src="${urls[i]}" class="info-img" alt="รูปจุดเสี่ยง"></a>`;
+                                }
+                            }
+                            imgHtml += '</div>';
+                            if(urls.length > 2) imgHtml += `<div class="text-end small mt-1"><a href="${urls[0]}" target="_blank" class="text-decoration-none">+ ดูรูปทั้งหมด (${urls.length})</a></div>`;
+                        }
+                    } else {
+                        imgHtml = '<div class="text-center p-2 text-muted small bg-light mt-2 rounded">ไม่มีรูปภาพประกอบ</div>';
+                    }
+
+                    const addrId = `addr-box-${index}`;
+                    const contentString = `
+                        <div style="min-width: 280px; max-width: 300px;">
+                            <h6 class="mb-1 fw-bold text-success">${item.type}</h6>
+                            <span class="badge ${statusColor} badge-status mb-2">${item.status}</span>
+                            
+                            <div id="${addrId}" class="alert alert-light p-1 border mb-2 small text-secondary">
+                                <i class="fas fa-spinner fa-spin"></i> กำลังโหลดที่อยู่...
+                            </div>
+                            
+                            <div class="mb-2">
+                                <small class="text-muted fw-bold">รายละเอียด:</small><br>
+                                <span class="small text-dark">${item.detail || '-'}</span>
+                            </div>
+
+                            <div class="mb-2">
+                                <small class="text-muted fw-bold">รูปภาพ:</small>
+                                ${imgHtml}
+                            </div>
+                            
+                            <div class="d-flex justify-content-between align-items-center mt-2 pt-2 border-top">
+                                <span class="text-muted small" style="font-size:10px;">
+                                    <i class="far fa-clock"></i> ${new Date(item.timestamp).toLocaleDateString('th-TH')}
+                                </span>
+                                <small class="text-muted">โดย: ${item.name || 'ไม่ระบุ'}</small>
+                            </div>
+                        </div>
+                    `;
+                    infoWindow.setContent(contentString);
+                    infoWindow.open(map, marker);
+
+                    // โหลดที่อยู่
+                    geocoder.geocode({ location: position }, (results, status) => {
+                        const el = document.getElementById(addrId);
+                        if (!el) return;
+                        if (status === "OK" && results[0]) {
+                            el.innerHTML = `<i class="fas fa-map-marker-alt text-danger"></i> ${results[0].formatted_address}`;
+                        } else {
+                            el.innerHTML = `<i class="fas fa-map-marker-alt"></i> ไม่พบข้อมูลที่อยู่`;
+                        }
+                    });
+                });
+                return marker;
+            });
+
+            if (window.markerClusterer && window.markerClusterer.MarkerClusterer) {
+                try {
+                    markerCluster = new markerClusterer.MarkerClusterer({ map, markers });
+                } catch (e) {
+                    markers.forEach(m => m.setMap(map));
+                }
+            } else {
+                markers.forEach(m => m.setMap(map));
+            }
+        }
+
+        document.getElementById("statusFilter").addEventListener("change", renderMarkers);
+        document.getElementById("typeFilter").addEventListener("change", renderMarkers);
+    </script>
+</body>
+</html>
